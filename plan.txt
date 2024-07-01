@@ -1,0 +1,1 @@
+A bot to be able to register to the service first and then be able to view courses from the bot itself
