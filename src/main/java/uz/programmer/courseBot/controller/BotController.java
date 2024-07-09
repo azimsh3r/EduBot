@@ -20,6 +20,6 @@ public class BotController {
     @PostMapping("/process")
     public void process(@RequestBody String response) {
         System.out.println(response);
-        botService.processMessage(response);
+        botService.handleIncomingMessage(response);
     }
 }

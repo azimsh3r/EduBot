@@ -28,34 +28,40 @@ public class BotService {
         this.courseService = courseService;
     }
 
-    private static final String BOT_TOKEN = "6992753580:AAEcWmO8lFQV8OAoezml-A9c8tEj12QNufM";
+    private static final String BOT_TOKEN = System.getenv("coursebot_token");
 
-    public void processMessage(String response) {
+    public void handleIncomingMessage(String response) {
         JsonObject jsonObject = new Gson().fromJson(response, JsonObject.class);
         JsonObject message = jsonObject.getAsJsonObject("message");
-        if (message == null) {
+
+        if (jsonObject.has("my_chat_member")) {
             message = jsonObject.getAsJsonObject("my_chat_member");
+        } else if (jsonObject.has("callback_query")) {
+            message = jsonObject.getAsJsonObject("callback_query").getAsJsonObject("message");
         }
 
         if (message != null) {
             JsonObject chat = message.getAsJsonObject("chat");
 
             if (chat != null) {
-                handleCommands(message, chat);
+                processCommandMessage(jsonObject, message, chat);
             }
         }
     }
 
-    private void handleCommands(JsonObject message, JsonObject chat) {
+    private void processCommandMessage(JsonObject response, JsonObject message, JsonObject chat) {
         String text = message.has("text") ? message.get("text").getAsString() : "Invalid";
         int chatId = chat.has("id") ? chat.get("id").getAsInt() : 0;
 
         if (text.equals("/start")) {
             String name = chat.has("first_name") ? chat.get("first_name").getAsString() : "User";
-            handleStart(name, chatId);
+            startUserSession(name, chatId);
             return;
         } else if (message.has("contact")) {
-            handleContact(message, chatId);
+            processUserContact(message, chatId);
+            return;
+        } else if (response.has("callback_query")) {
+            processCallbackData(response, chatId);
             return;
         }
 
@@ -63,21 +69,25 @@ public class BotService {
             User user = userService.findUserByChatId(chatId).get();
 
             switch (text) {
-                case "All Courses\uD83E\uDDD1\u200D\uD83D\uDCBB️", "My Courses", "My Cart\uD83D\uDED2": {
+                case "All Courses\uD83E\uDDD1\u200D\uD83D\uDCBB️", "My Courses": {
                     if (text.equals("All Courses\uD83E\uDDD1\u200D\uD83D\uDCBB️")) {
                         userService.setState(chatId, "courses");
-                    } else if (text.equals("My Courses")) {
-                        userService.setState(chatId, "mycourses");
                     } else {
-                        userService.setState(chatId, "mycart");
+                        userService.setState(chatId, "mycourses");
                     }
 
                     userService.setPrevState(chatId, "start");
-                    handleCourses(user);
+                    displayCourses(user);
+                    break;
+                }
+                case "My Cart\uD83D\uDED2" : {
+                    userService.setState(chatId, "mycart");
+                    userService.setPrevState(chatId, "start");
+                    viewCart(user);
                     break;
                 }
                 case "Go Back⬅️": {
-                    handleGoBack(user);
+                    navigateBack(user);
                     break;
                 }
                 case "Add to Cart\uD83D\uDED2": {
@@ -94,9 +104,9 @@ public class BotService {
                                 cartUserList.add(user);
                                 course.setCartUserList(cartUserList);
                                 courseService.save(course);
-                                sendMessage("Successfully added to your Cart!", chatId, new HashMap<>());
+                                sendTelegramMessage("Successfully added to your Cart!", chatId, new HashMap<>());
                             } else {
-                                sendMessage("This course is already added to your Cart!", chatId, new HashMap<>());
+                                sendTelegramMessage("This course is already added to your Cart!", chatId, new HashMap<>());
                             }
                         });
                     }
@@ -110,7 +120,7 @@ public class BotService {
                     String state = user.getState();
                     if (state.equals("courses") || state.equals("mycourses") || state.equals("mycart")) {
                         userService.setPrevState(chatId, user.getState());
-                        handleCourse(text, user);
+                        displayCourseDetails(text, user);
                     }
                 }
             }
@@ -121,28 +131,28 @@ public class BotService {
                     "one_time_keyboard", true
             );
 
-            sendMessage("Firstly, make sure to login by sending your contact details!", chatId, replyMarkup);
+            sendTelegramMessage("Firstly, make sure to login by sending your contact details!", chatId, replyMarkup);
         }
     }
 
-    private void handleStart(String name, int chatId) {
+    private void startUserSession(String name, int chatId) {
         userService.setState(chatId, "start");
 
         if (userService.verifyRegistration(chatId)) {
-            handleMainMenu(chatId);
+            displayMainMenu(chatId);
         } else {
             Map<String, Object> replyMarkup = Map.of(
                     "keyboard", List.of(List.of(Map.of("text", "Get Contact", "request_contact", true))),
                     "resize_keyboard", true,
                     "one_time_keyboard", true
             );
-            sendMessage("Hello " + name + "! Please send your contacts to proceed!", chatId, replyMarkup);
+            sendTelegramMessage("Hello " + name + "! Please send your contacts to proceed!", chatId, replyMarkup);
         }
     }
 
-    private void handleContact(JsonObject message, int chatId) {
+    private void processUserContact(JsonObject message, int chatId) {
         if (!userService.verifyPhoneNumber(message, chatId)) {
-            sendMessage("Invalid Contact Details! Please send your own contact details!", chatId, new HashMap<>());
+            sendTelegramMessage("Invalid Contact Details! Please send your own contact details!", chatId, new HashMap<>());
             return;
         }
 
@@ -154,10 +164,10 @@ public class BotService {
         regUser.ifPresent(value -> user.setId(value.getId()));
         userService.save(user);
 
-        handleMainMenu(chatId);
+        displayMainMenu(chatId);
     }
 
-    private void handleMainMenu(int chatId) {
+    private void displayMainMenu(int chatId) {
         List<Map<String, Object>> commandList = List.of(
                 Map.of("text", "All Courses\uD83E\uDDD1\u200D\uD83D\uDCBB️"),
                 Map.of("text", "My Courses"),
@@ -170,29 +180,21 @@ public class BotService {
                 "resize_keyboard", true,
                 "one_time_keyboard", true
         );
-        sendMessage("Please choose any option from menu below!", chatId, replyMarkup);
+        sendTelegramMessage("Please choose any option from menu below!", chatId, replyMarkup);
     }
 
-    private void handleCourses(User user) {
+    private void displayCourses(User user) {
         List<Course> courseList = new ArrayList<>();
-//
-//        userService.setPrevState(user.getChatId(), "start");
-        switch (user.getState()) {
-            case "courses" : {
-                courseList = courseService.findAll();
-                break;
-            }
-            case "mycart" : {
-                courseList = user.getCartCourseList();
-                break;
-            }
-            case "mycourses" : {
-                courseList = user.getBoughtCourseList();
-                break;
-            }
-        }
+
+        courseList = switch (user.getState()) {
+            case "courses" -> courseService.findAll();
+            case "mycourses" -> user.getBoughtCourseList();
+            default -> courseList;
+        };
+
         List<Map<String, Object>> listOfButtons = new ArrayList<>();
         courseList.forEach(course -> listOfButtons.add(Map.of("text", course.getTitle())));
+
         listOfButtons.add(Map.of("text", "Go Back⬅️"));
 
         Map<String, Object> replyMarkup = Map.of(
@@ -200,17 +202,45 @@ public class BotService {
                 "resize_keyboard", true,
                 "one_time_keyboard", true
         );
-        sendMessage("Please Choose any course from options below!", user.getChatId(), replyMarkup);
+        sendTelegramMessage("Please Choose any course from options below!", user.getChatId(), replyMarkup);
     }
 
-    private void handleCourse(String text, User user) {
+    private void viewCart(User user) {
+        List<Course> courseList = user.getCartCourseList();
+
         Map<String, Object> replyMarkup = Map.of(
-                "inline_keyboard", List.of(List.of(Map.of(
-                        "text", "Buy the course!\uD83D\uDCB3",
-                        "url", "youtube.com"
-                ))),
+                "keyboard", List.of(List.of(
+                        Map.of("text", "Buy All Courses"),
+                        Map.of("text", "Go Back⬅️")
+                )),
+                "is_persistent", true,
+                "resize_keyboard", true,
+                "one_time_keyboard", true
+        );
+
+        if(!courseList.isEmpty()) {
+           sendTelegramMessage("Your Cart!", user.getChatId(), replyMarkup);
+            for (Course course : courseList) {
+                sendTelegramMessage(
+                        "\uD83D\uDCDA" + course.getTitle() + "\n\uD83D\uDC64 By " + course.getAuthor() + "\nRanking: " + course.getRanking() + "\nPrice(In soums): " + course.getPrice(),
+                        user.getChatId(),
+                        Map.of(
+                                "inline_keyboard", List.of(List.of(
+                                        Map.of("text", "\uD83D\uDDD1", "callback_data", "cart " + course.getId()),
+                                        Map.of("text", "Buy the course!\uD83D\uDCB3", "url", "payme.uz")
+                                ))
+                        ));
+            }
+        } else {
+            sendTelegramMessage("Your cart is empty!", user.getChatId(), replyMarkup);
+        }
+    }
+
+    private void displayCourseDetails(String text, User user) {
+        Map<String, Object> replyMarkup = Map.of(
                 "keyboard", List.of(List.of(
                         Map.of("text", "Add to Cart\uD83D\uDED2"),
+                        Map.of("text", "Buy the course!\uD83D\uDCB3"),
                         Map.of("text", "Go Back⬅️")
                 )),
                 "is_persistent", true,
@@ -221,23 +251,23 @@ public class BotService {
         Optional<Course> course = courseService.findCourseByTitle(text);
         course.ifPresent(value -> {
             userService.setState(user.getChatId(), "course "+value.getId());
-            sendMessage("\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + course.get().getAuthor() + "\nPrice(In soums): " + course.get().getPrice(), user.getChatId(), replyMarkup);
+            sendTelegramMessage("\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(), user.getChatId(), replyMarkup);
         });
     }
 
-    private void handleGoBack(User user) {
+    private void navigateBack(User user) {
         String prevState = user.getPreviousState();
         switch (prevState) {
             case "start" : {
                 userService.setState(user.getChatId(), "start");
-                handleMainMenu(user.getChatId());
+                displayMainMenu(user.getChatId());
                 break;
             }
             case "courses", "mycourses", "mycart" : {
                 userService.setState(user.getChatId(), user.getPreviousState());
                 userService.setPrevState(user.getChatId(), "start");
 
-                handleCourses(user);
+                displayCourses(user);
                 break;
             }
             default: {
@@ -248,9 +278,24 @@ public class BotService {
         }
     }
 
-    private void sendMessage(String text, int chatId, Map<String, Object> replyMarkup) {
+    private void processCallbackData(JsonObject response, int chatId) {
+        JsonObject callbackQuery = response.getAsJsonObject("callback_query");
+
+        if (callbackQuery.has("data")) {
+            String data = callbackQuery.get("data").getAsString();
+            Pattern pattern = Pattern.compile("cart\\s*(\\d+)");
+
+            Matcher matcher = pattern.matcher(data);
+            if (matcher.matches()) {
+                int id = Integer.parseInt(matcher.group(1));
+                courseService.deleteFromCartByChatId(chatId, id);
+            }
+        }
+    }
+
+    private String sendTelegramMessage(String text, int chatId, Map<String, Object> replyMarkup) {
         try {
-            RestClient
+            return RestClient
                     .builder()
                     .baseUrl("https://api.telegram.org/bot" + BOT_TOKEN)
                     .build()
@@ -265,9 +310,10 @@ public class BotService {
                             )
                     )
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(String.class);
         } catch (HttpClientErrorException.Unauthorized errorException) {
             System.out.println(errorException.getMessage());
         }
+        return "";
     }
 }
