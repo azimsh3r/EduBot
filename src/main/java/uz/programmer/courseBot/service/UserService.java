@@ -1,15 +1,13 @@
 package uz.programmer.courseBot.service;
 
-import jakarta.transaction.Transactional;
+import com.google.gson.JsonObject;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import uz.programmer.courseBot.model.User;
 import uz.programmer.courseBot.repository.UserRepository;
-import uz.programmer.courseBot.security.AuthDetails;
 
-import java.util.List;
+import java.util.Optional;
 
 @Service
 @Transactional
@@ -22,28 +20,56 @@ public class UserService {
         this.userRepository = userRepository;
     }
 
+    public Optional<User> findUserByPhoneNumber(String phoneNumber) {
+        return userRepository.findUserByPhoneNumber(phoneNumber);
+    }
+
+    public Optional<User> findUserByChatId(int chatId) {
+        return userRepository.findUserByChatId(chatId);
+    }
+
     public void save(User user) {
         userRepository.save(user);
     }
 
-    @PreAuthorize("hasRole('ROLE_USER')")
-    public void admin() {
-        // Admin functionality
+    public void setState(int chatId, String state) {
+        Optional<User> user = findUserByChatId(chatId);
+        user.ifPresent(value -> value.setState(state));
     }
 
-    public List<User> findAll() {
-        return userRepository.findAll();
+    public void setPrevState(int chatId, String state) {
+        Optional<User> user = findUserByChatId(chatId);
+        user.ifPresent(value -> value.setPreviousState(state));
     }
 
-    public UserDetails findAllByToken(String token) {
-        return new AuthDetails(userRepository.findUserByToken(token));
+    public boolean verifyRegistration(int chatId) {
+        return userRepository.findUserByChatId(chatId).isPresent();
     }
 
-    public List<User> findAllByPhoneNumber(String phoneNumber) {
-        return userRepository.findAllByPhoneNumber(phoneNumber);
+    public boolean verifyPhoneNumber(JsonObject message, int chatId) {
+        JsonObject contact = message.getAsJsonObject("contact");
+        if (contact != null && contact.has("user_id")) {
+            return contact.get("user_id").getAsInt() == chatId;
+        }
+        return false;
     }
 
-    public List<User> findAllById(int id) {
-        return userRepository.findAllById(id);
+    public User extractUserFromMessage(JsonObject message) {
+        User user = new User();
+        JsonObject chat = message.getAsJsonObject("chat");
+        if (chat != null) {
+            user.setFirstName(chat.has("first_name") ? chat.get("first_name").getAsString() : null);
+            user.setLastName(chat.has("last_name") ? chat.get("last_name").getAsString() : null);
+            user.setChatId(chat.has("id") ? chat.get("id").getAsInt() : 0);
+        }
+
+        JsonObject contact = message.getAsJsonObject("contact");
+        if (contact != null) {
+            user.setPhoneNumber(contact.has("phone_number") ? contact.get("phone_number").getAsString() : null);
+            if (user.getPhoneNumber() != null && !user.getPhoneNumber().startsWith("+")) {
+                user.setPhoneNumber("+" + user.getPhoneNumber());
+            }
+        }
+        return user;
     }
 }

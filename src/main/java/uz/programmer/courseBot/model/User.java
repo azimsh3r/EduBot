@@ -5,9 +5,10 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
-@Table(name = "bot_user") //, schema = "moykachi")
+@Table(name = "bot_user") //, schema = "courseBot")
 @Getter
 @Setter
 public class User {
@@ -23,16 +24,24 @@ public class User {
     @Column(name = "last_name")
     private String lastName;
 
-    @Column(name = "role")
-    private String role;
-
     @Column(name = "phone_number")
     private String phoneNumber;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    @Transient
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private AuthPrincipal authPrincipal;
+    @Column(name="state")
+    private String state;
+
+    @Column(name="chat_id")
+    private int chatId;
+
+    @Column(name="prev_state")
+    private String previousState;
+
+    @ManyToMany(mappedBy = "userList")
+    List<Course> boughtCourseList;
+
+    @ManyToMany(mappedBy = "cartUserList")
+    List<Course> cartCourseList;
 }
