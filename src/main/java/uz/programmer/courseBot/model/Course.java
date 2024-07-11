@@ -23,6 +23,9 @@ public class Course {
     @Column(name="title")
     private String title;
 
+    @Column(name="description")
+    private String description;
+
     @Column(name="author")
     private String author;
 

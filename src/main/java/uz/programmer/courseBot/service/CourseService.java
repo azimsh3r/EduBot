@@ -41,11 +41,6 @@ public class CourseService {
 
     public void deleteFromCartByChatId(int chatId, int course_id) {
         Optional<Course> course = findCourseById(course_id);
-        if (course.isPresent()) {
-            List<User> cartUserList = course.get().getCartUserList();
-            cartUserList.remove(userService.findUserByChatId(chatId).get());
-            course.get().setCartUserList(cartUserList);
-            System.out.println("done delete");
-        }
+        course.ifPresent(value -> value.getCartUserList().remove(userService.findUserByChatId(chatId).get()));
     }
 }

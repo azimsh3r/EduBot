@@ -116,6 +116,16 @@ public class BotService {
                     // TODO: 7/8/2024 Logic for payment
                     break;
                 }
+                case "View Details": {
+                    Pattern pattern = Pattern.compile("course\\s*(\\d+)");
+                    Matcher matcher = pattern.matcher(user.getState());
+
+                    if (matcher.matches()) {
+                        int courseId = Integer.parseInt(matcher.group(1));
+                        displayCourseSectionDetails(courseId);
+                    }
+                    break;
+                }
                 default: {
                     String state = user.getState();
                     if (state.equals("courses") || state.equals("mycourses") || state.equals("mycart")) {
@@ -222,7 +232,7 @@ public class BotService {
            sendTelegramMessage("Your Cart!", user.getChatId(), replyMarkup);
             for (Course course : courseList) {
                 sendTelegramMessage(
-                        "\uD83D\uDCDA" + course.getTitle() + "\n\uD83D\uDC64 By " + course.getAuthor() + "\nRanking: " + course.getRanking() + "\nPrice(In soums): " + course.getPrice(),
+                        "\uD83D\uDCDA" + course.getTitle() + "\nDescription: " + course.getDescription() + "\n\uD83D\uDC64 By " + course.getAuthor() + "\nRanking: " + course.getRanking() + "\nPrice(In soums): " + course.getPrice(),
                         user.getChatId(),
                         Map.of(
                                 "inline_keyboard", List.of(List.of(
@@ -239,6 +249,7 @@ public class BotService {
     private void displayCourseDetails(String text, User user) {
         Map<String, Object> replyMarkup = Map.of(
                 "keyboard", List.of(List.of(
+                        Map.of("text", "View Details"),
                         Map.of("text", "Add to Cart\uD83D\uDED2"),
                         Map.of("text", "Buy the course!\uD83D\uDCB3"),
                         Map.of("text", "Go Back⬅️")
@@ -253,6 +264,10 @@ public class BotService {
             userService.setState(user.getChatId(), "course "+value.getId());
             sendTelegramMessage("\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(), user.getChatId(), replyMarkup);
         });
+    }
+
+    private void displayCourseSectionDetails(int courseId) {
+
     }
 
     private void navigateBack(User user) {
@@ -289,13 +304,14 @@ public class BotService {
             if (matcher.matches()) {
                 int id = Integer.parseInt(matcher.group(1));
                 courseService.deleteFromCartByChatId(chatId, id);
+                sendTelegramMessage("Course removed successfully!", chatId, new HashMap<>());
             }
         }
     }
 
-    private String sendTelegramMessage(String text, int chatId, Map<String, Object> replyMarkup) {
+    public void sendTelegramMessage(String text, int chatId, Map<String, Object> replyMarkup) {
         try {
-            return RestClient
+            RestClient
                     .builder()
                     .baseUrl("https://api.telegram.org/bot" + BOT_TOKEN)
                     .build()
@@ -314,6 +330,5 @@ public class BotService {
         } catch (HttpClientErrorException.Unauthorized errorException) {
             System.out.println(errorException.getMessage());
         }
-        return "";
     }
 }
