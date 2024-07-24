@@ -1,125 +1,115 @@
 package uz.programmer.courseBot.service;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import uz.programmer.courseBot.model.User;
+import uz.programmer.courseBot.dao.CartDAO;
+import uz.programmer.courseBot.model.Cart;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 public class PaymentService {
-    BotService botService;
 
-    UserService userService;
+    private final CartService cartService;
+
+    private final CartDAO cartDAO;
 
     @Autowired
-    PaymentService(BotService botService, UserService userService) {
-        this.botService = botService;
-        this.userService = userService;
+    public PaymentService(CartService cartService, CartDAO cartDAO) {
+        this.cartService = cartService;
+        this.cartDAO = cartDAO;
     }
 
-    private Map<String, Object> getRequestMap(String method, Map<String, Object> params) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("method", method);
-        map.put("params", params);
-        return map;
+    public String pay(int userId) {
+        Optional<Cart> cart = cartService.findCartByUserId(userId);
+        return cart.map(this::initializePayment).orElse("error.uz");
     }
 
-    public void pay (int amount, int chatId) {
-        Optional<User> user = userService.findUserByChatId(chatId);
-        if (user.isPresent()) {
-            try {
-                checkPerformTransaction(amount, user.get().getPhoneNumber());
-            } catch (Exception e) {
-                botService.sendTelegramMessage(e.getMessage(), chatId, new HashMap<>());
+    private String initializePayment(Cart cart) {
+        StringBuilder originalUrl = new StringBuilder();
+
+        originalUrl.append("m=65745d3ddbf5969676427108").append(";");
+        originalUrl.append("ac.cart_id=").append(cart.getId()).append(";");
+        originalUrl.append("a=").append(cart.getTotalAmount() * 100).append(";");
+        originalUrl.append("c=https://t.me/prcoursebot");
+
+        String encodedUrl = Base64.getEncoder().encodeToString(originalUrl.toString().getBytes());
+        return "https://checkout.paycom.uz/"+encodedUrl;
+    }
+
+    public Map<String, Object> processRequest(String jsonObject) {
+        JsonObject response = new Gson().fromJson(jsonObject, JsonObject.class);
+        Map<String, Object> result = new HashMap<>();
+
+        if (response.has("method")) {
+            String method = response.getAsJsonObject("method").getAsString();
+            switch (method) {
+                case "CheckPerformTransaction": {
+                    result.put(
+                            "result",
+                            Map.of(
+                                    "allow", true
+                            )
+                    );
+                    break;
+                }
+                case "CreateTransaction" : {
+                    result.put(
+                            "result",
+                            Map.of(
+                                    "create_time", LocalDate.now(),
+                                    "transaction", 4,
+                                    "state", 1
+                            )
+                    );
+                    break;
+                }
+                case "PerformTransaction" : {
+                    result.put(
+                            "result",
+                            Map.of(
+                                    "transaction", 4,
+                                    "perform_time", LocalDateTime.now(),
+                                    "state" , 2
+                            )
+                    );
+                    break;
+                }
+                case "CancelTransaction" : {
+                    result.put(
+                            "result",
+                            Map.of(
+                                    "transaction", 4,
+                                    "cancel_time", LocalDateTime.now(),
+                                    "state", -2
+                            )
+                    );
+                    break;
+                }
+                case "CheckTransaction" : {
+                    result.put(
+                            "result" ,
+                            Map.of(
+                                    //TODO: Modify these values to reflect real case
+                                    "create_time", LocalDateTime.now(),
+                                    "perform_time", LocalDateTime.now(),
+                                    "cancel_time", 0,
+                                    "transaction", "5123",
+                                    "state", 2,
+                                    "reason", "No re"
+                            )
+                    );
+                    break;
+                }
+                case "GetStatement" : {
+                    break;
+                }
             }
         }
-    }
-
-    private void checkPerformTransaction (int amount, String phoneNumber) {
-        Map<String, Object> params = Map.of(
-                "amount", amount,
-                "account", Map.of(
-                        "phone", phoneNumber
-                )
-        );
-        try {
-            sendRequest(getRequestMap("CheckPerformTransaction", params));
-        } catch (Exception e) {
-            //TODO: Handle this error here
-        }
-    }
-
-    private void createTransaction (int amount, String phoneNumber) {
-        Map<String, Object> params = Map.of (
-                "id", "id here",//Yet to be received
-                "amount", amount,
-                "account", Map.of("phone", phoneNumber),
-                "time", LocalDateTime.now()
-        );
-
-        try {
-            sendRequest(getRequestMap("CreateTransaction", params));
-        } catch (Exception e) {
-            //TODO: Handle Exceptions here
-        }
-    }
-
-    private void performTransaction () {
-        try {
-            sendRequest (getRequestMap("PerformTransaction", Map.of("id", "id here")));
-        } catch (Exception e) {
-            System.out.println();
-        }
-    }
-
-    private void cancelTransaction () {
-        Map<String, Object> params = Map.of(
-                "id", "id here",
-                "reason", 1
-        );
-
-        sendRequest(getRequestMap("CancelTransaction", params));
-    }
-
-    private void checkTransaction() {
-        try {
-            sendRequest(getRequestMap("CheckTransaction", Map.of("id", "id here")));
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
-    }
-
-    private void getStatement() {
-        Map<String, Object> params = Map.of(
-                "from", LocalDateTime.now().minusMinutes(1),
-                "to", LocalDateTime.now()
-        );
-
-        try {
-            sendRequest(getRequestMap("GetStatement", params));
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
-    }
-
-    private JsonObject sendRequest(Map<String, Object> map) {
-        return RestClient
-                .builder()
-                .baseUrl("url here")
-                .build()
-                .post()
-                .uri("/endpoints here")
-                .accept(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Basic " + System.getenv("payme_token"))
-                .body(map)
-                .retrieve()
-                .body(JsonObject.class);
+        return result;
     }
 }

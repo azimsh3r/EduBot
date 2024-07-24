@@ -3,6 +3,7 @@ package uz.programmer.courseBot.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.Cascade;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,7 +13,6 @@ import java.util.List;
 @Getter
 @Setter
 public class User {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
@@ -39,9 +39,9 @@ public class User {
     @Column(name="prev_state")
     private String previousState;
 
-    @ManyToMany(mappedBy = "userList")
-    List<Course> boughtCourseList;
+    @OneToOne(mappedBy = "user")
+    private Cart cart;
 
-    @ManyToMany(mappedBy = "cartUserList")
-    List<Course> cartCourseList;
+    @ManyToMany(mappedBy = "users")
+    private List<Course> boughtCourses;
 }

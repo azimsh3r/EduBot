@@ -38,9 +38,4 @@ public class CourseService {
     public void save(Course course) {
         courseRepository.save(course);
     }
-
-    public void deleteFromCartByChatId(int chatId, int course_id) {
-        Optional<Course> course = findCourseById(course_id);
-        course.ifPresent(value -> value.getCartUserList().remove(userService.findUserByChatId(chatId).get()));
-    }
 }

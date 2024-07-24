@@ -28,8 +28,8 @@ public class UserService {
         return userRepository.findUserByChatId(chatId);
     }
 
-    public void save(User user) {
-        userRepository.save(user);
+    public User save(User user) {
+        return userRepository.save(user);
     }
 
     public void setState(int chatId, String state) {
@@ -71,5 +71,9 @@ public class UserService {
             }
         }
         return user;
+    }
+
+    public Optional<User> findUserById(int userId) {
+        return userRepository.findById(userId);
     }
 }

@@ -2,16 +2,21 @@ package uz.programmer.courseBot.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import uz.programmer.courseBot.model.Cart;
 import uz.programmer.courseBot.model.Course;
+import uz.programmer.courseBot.model.CourseSection;
 import uz.programmer.courseBot.model.User;
 
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,11 +25,19 @@ import java.util.regex.Pattern;
 public class BotService {
     private final UserService userService;
 
+    private final PaymentService paymentService;
+
+    private final CartService cartService;
+
     private final CourseService courseService;
 
+    private final RestClient restClient = RestClient.builder().baseUrl("https://api.telegram.org/bot" + BOT_TOKEN).build();
+
     @Autowired
-    public BotService(UserService userService, CourseService courseService) {
+    public BotService(UserService userService, PaymentService paymentService, CartService cartService, CourseService courseService) {
         this.userService = userService;
+        this.paymentService = paymentService;
+        this.cartService = cartService;
         this.courseService = courseService;
     }
 
@@ -75,7 +88,6 @@ public class BotService {
                     } else {
                         userService.setState(chatId, "mycourses");
                     }
-
                     userService.setPrevState(chatId, "start");
                     displayCourses(user);
                     break;
@@ -90,47 +102,10 @@ public class BotService {
                     navigateBack(user);
                     break;
                 }
-                case "Add to Cart\uD83D\uDED2": {
-                    Pattern pattern = Pattern.compile("course\\s*(\\d+)");
-                    Matcher matcher = pattern.matcher(user.getState());
-
-                    if (matcher.matches()) {
-                        int id = Integer.parseInt(matcher.group(1));
-
-                        Optional<Course> foundCourse = courseService.findCourseById(id);
-                        foundCourse.ifPresent(course -> {
-                            List<User> cartUserList = course.getCartUserList();
-                            if (!cartUserList.contains(user)) {
-                                cartUserList.add(user);
-                                course.setCartUserList(cartUserList);
-                                courseService.save(course);
-                                sendTelegramMessage("Successfully added to your Cart!", chatId, new HashMap<>());
-                            } else {
-                                sendTelegramMessage("This course is already added to your Cart!", chatId, new HashMap<>());
-                            }
-                        });
-                    }
-                    break;
-                }
-                case "Buy the course!\uD83D\uDCB3": {
-                    // TODO: 7/8/2024 Logic for payment
-                    break;
-                }
-                case "View Details": {
-                    Pattern pattern = Pattern.compile("course\\s*(\\d+)");
-                    Matcher matcher = pattern.matcher(user.getState());
-
-                    if (matcher.matches()) {
-                        int courseId = Integer.parseInt(matcher.group(1));
-                        displayCourseSectionDetails(courseId);
-                    }
-                    break;
-                }
                 default: {
                     String state = user.getState();
-                    if (state.equals("courses") || state.equals("mycourses") || state.equals("mycart")) {
-                        userService.setPrevState(chatId, user.getState());
-                        displayCourseDetails(text, user);
+                    if (state.equals("courses") || state.equals("mycourses") || state.startsWith("course")) {
+                        displayCourseDetails(courseService.findCourseByTitle(text), user, false, 0);
                     }
                 }
             }
@@ -172,7 +147,12 @@ public class BotService {
         Optional<User> regUser = userService.findUserByPhoneNumber(user.getPhoneNumber());
 
         regUser.ifPresent(value -> user.setId(value.getId()));
-        userService.save(user);
+        User newUser = userService.save(user);
+
+        //Create a new cart as soon as registered
+        Cart cart = new Cart();
+        cart.setUser(newUser);
+        cartService.save(cart);
 
         displayMainMenu(chatId);
     }
@@ -198,97 +178,174 @@ public class BotService {
 
         courseList = switch (user.getState()) {
             case "courses" -> courseService.findAll();
-            case "mycourses" -> user.getBoughtCourseList();
+            case "mycourses" -> user.getBoughtCourses();
             default -> courseList;
         };
 
         List<Map<String, Object>> listOfButtons = new ArrayList<>();
         courseList.forEach(course -> listOfButtons.add(Map.of("text", course.getTitle())));
 
+        if (user.getState().equals("courses"))
+            listOfButtons.add(Map.of("text", "My Cart\uD83D\uDED2"));
         listOfButtons.add(Map.of("text", "Go Back⬅️"));
 
         Map<String, Object> replyMarkup = Map.of(
                 "keyboard", List.of(listOfButtons),
                 "resize_keyboard", true,
-                "one_time_keyboard", true
+                "one_time_keyboard", false
         );
         sendTelegramMessage("Please Choose any course from options below!", user.getChatId(), replyMarkup);
     }
 
     private void viewCart(User user) {
-        List<Course> courseList = user.getCartCourseList();
+        Optional<Cart> cart = cartService.findCartByUserId(user.getId());
+        List<Map<String, Object>> inlineButtons = new ArrayList<>();
 
-        Map<String, Object> replyMarkup = Map.of(
-                "keyboard", List.of(List.of(
-                        Map.of("text", "Buy All Courses"),
-                        Map.of("text", "Go Back⬅️")
-                )),
+        Map<String, Object> replyMarkup = new HashMap<>(Map.of(
                 "is_persistent", true,
                 "resize_keyboard", true,
                 "one_time_keyboard", true
-        );
+        ));
 
-        if(!courseList.isEmpty()) {
-           sendTelegramMessage("Your Cart!", user.getChatId(), replyMarkup);
-            for (Course course : courseList) {
-                sendTelegramMessage(
-                        "\uD83D\uDCDA" + course.getTitle() + "\nDescription: " + course.getDescription() + "\n\uD83D\uDC64 By " + course.getAuthor() + "\nRanking: " + course.getRanking() + "\nPrice(In soums): " + course.getPrice(),
-                        user.getChatId(),
-                        Map.of(
-                                "inline_keyboard", List.of(List.of(
-                                        Map.of("text", "\uD83D\uDDD1", "callback_data", "cart " + course.getId()),
-                                        Map.of("text", "Buy the course!\uD83D\uDCB3", "url", "payme.uz")
-                                ))
-                        ));
+        if (cart.isPresent() && !cart.get().getCourseList().isEmpty()) {
+            replyMarkup.put("keyboard", List.of(List.of(
+                    Map.of("text", "Go Back⬅️")
+            )));
+
+            sendTelegramMessage("Please choose any option from menu below!", user.getChatId(), replyMarkup);
+
+            StringBuilder text = new StringBuilder();
+            List<Course> courses = cart.get().getCourseList();
+
+            for (int i = 0; i < courses.size(); i++) {
+                text.append(i+1).append(") ").append(courses.get(i).getTitle()).append("\n");
+                inlineButtons.add(Map.of("text", "❌" + courses.get(i).getTitle(), "callback_data", "delete_in_cart " + courses.get(i).getId()));
             }
+            text.append("Total Amount: ").append(cart.get().getTotalAmount()).append(" sum");
+            inlineButtons.add(Map.of("text", "Buy Courses!\uD83D\uDCB3", "url", paymentService.pay(user.getId())));
+
+            sendTelegramMessage(
+                    text.toString(),
+                    user.getChatId(),
+                    Map.of(
+                        "inline_keyboard", List.of(inlineButtons)
+                    )
+            );
         } else {
+            replyMarkup.put("keyboard", List.of(List.of(
+                    Map.of("text", "Go Back⬅️")
+            )));
             sendTelegramMessage("Your cart is empty!", user.getChatId(), replyMarkup);
         }
     }
 
-    private void displayCourseDetails(String text, User user) {
-        Map<String, Object> replyMarkup = Map.of(
-                "keyboard", List.of(List.of(
-                        Map.of("text", "View Details"),
-                        Map.of("text", "Add to Cart\uD83D\uDED2"),
-                        Map.of("text", "Buy the course!\uD83D\uDCB3"),
-                        Map.of("text", "Go Back⬅️")
-                )),
-                "is_persistent", true,
-                "resize_keyboard", true,
-                "one_time_keyboard", true
-        );
+    private void editCart(User user, int messageId) {
+        Hibernate.initialize(user.getCart());
+        StringBuilder text = new StringBuilder();
 
-        Optional<Course> course = courseService.findCourseByTitle(text);
+        List<Map<String, Object>> inlineButtons = new ArrayList<>();
+        List<Course> courses = user.getCart().getCourseList();
+
+        if (courses.isEmpty()) {
+            editTelegramMessage("Your cart is empty!", user.getChatId(), messageId, new HashMap<>());
+        } else {
+            for (int i = 0; i < courses.size(); i++) {
+                text.append(i + 1).append(") ").append(courses.get(i).getTitle()).append("\n");
+                inlineButtons.add(Map.of("text", "❌" + courses.get(i).getTitle(), "callback_data", "delete_in_cart " + courses.get(i).getId()));
+            }
+            text.append("Total Amount: ").append(user.getCart().getTotalAmount()).append(" sum");
+            inlineButtons.add(Map.of("text", "Buy Courses!\uD83D\uDCB3", "url", paymentService.pay(user.getId())));
+
+            editTelegramMessage(
+                    text.toString(),
+                    user.getChatId(),
+                    messageId,
+                    Map.of(
+                            "inline_keyboard", List.of(inlineButtons)
+                    )
+            );
+        }
+    }
+
+    private void displayCourseDetails(Optional<Course> course, User user, boolean edit, int messageId) {
         course.ifPresent(value -> {
-            userService.setState(user.getChatId(), "course "+value.getId());
-            sendTelegramMessage("\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(), user.getChatId(), replyMarkup);
+            userService.setPrevState(user.getChatId(), "start");
+            userService.setState(user.getChatId(), "course " + value.getId());
+
+            List<Map<String, Object>> inlineButtons = new ArrayList<>();
+
+            Hibernate.initialize(user.getBoughtCourses());
+            Hibernate.initialize(user.getCart());
+
+            if (user.getBoughtCourses().contains(course.get())) {
+                inlineButtons.add(Map.of("text", "View", "callback_data", "view_course " + value.getId()));
+            } else if (user.getCart().getCourseList().contains(course.get())) {
+                inlineButtons.add(Map.of("text", "❌\uD83D\uDDD1", "callback_data", "delete_out_cart " + value.getId()));
+            } else {
+                inlineButtons.add(Map.of("text", "\uD83D\uDED2", "callback_data", "add_cart " + value.getId()));
+            }
+
+            if (edit) {
+                editTelegramMessage(
+                        "\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(),
+                        user.getChatId(),
+                        messageId,
+                        Map.of(
+                                "inline_keyboard", List.of(inlineButtons),
+                                "is_persistent", true,
+                                "resize_keyboard", true,
+                                "one_time_keyboard", true
+                        )
+                );
+            } else {
+                sendTelegramMessage(
+                        "\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(),
+                        user.getChatId(),
+                        Map.of(
+                                "inline_keyboard", List.of(inlineButtons),
+                                "is_persistent", true,
+                                "resize_keyboard", true,
+                                "one_time_keyboard", true
+                        )
+                );
+            }
         });
     }
 
-    private void displayCourseSectionDetails(int courseId) {
+    private void displayCourseSectionDetails(int courseId, User user, int messageId) {
+        Optional<Course> course = courseService.findCourseById(courseId);
 
+        StringBuilder sectionsString = new StringBuilder();
+        if (course.isPresent() && !course.get().getCourseSectionList().isEmpty()) {
+            List<Map<String, Object>> inlineButtons = new ArrayList<>();
+
+            List<CourseSection> courseSections = course.get().getCourseSectionList();
+
+            sectionsString.append("Sections:").append("\n");
+            for (int i = 0; i < courseSections.size(); i++) {
+                CourseSection section = courseSections.get(i);
+                Hibernate.initialize(section.getCourseLessonList());
+
+                sectionsString.append(i + 1).append(") ").append(section.getName()).append(" (").append(section.getCourseLessonList().size()).append(" lessons)").append("\n");
+                inlineButtons.add(Map.of(
+                        "text", section.getName(),
+                        "callback_data", "view_section " + i + " course " + course.get().getId()
+                ));
+            }
+            editTelegramMessage(sectionsString.toString(), user.getChatId(), messageId, Map.of("inline_keyboard", List.of(inlineButtons)));
+        } else {
+            sendTelegramMessage("Error, no Sections found!", user.getChatId(), new HashMap<>());
+        }
     }
 
     private void navigateBack(User user) {
         String prevState = user.getPreviousState();
-        switch (prevState) {
-            case "start" : {
-                userService.setState(user.getChatId(), "start");
-                displayMainMenu(user.getChatId());
-                break;
-            }
-            case "courses", "mycourses", "mycart" : {
-                userService.setState(user.getChatId(), user.getPreviousState());
-                userService.setPrevState(user.getChatId(), "start");
-
-                displayCourses(user);
-                break;
-            }
-            default: {
-                if (prevState.startsWith("course ")) {
-                    //TODO: Add a logic to come back from components of a course
-                }
+        if (prevState.equals("start")) {
+            userService.setState(user.getChatId(), "start");
+            displayMainMenu(user.getChatId());
+        } else {
+            if (prevState.startsWith("course ")) {
+                //TODO: Logic for going back to course details
             }
         }
     }
@@ -296,25 +353,46 @@ public class BotService {
     private void processCallbackData(JsonObject response, int chatId) {
         JsonObject callbackQuery = response.getAsJsonObject("callback_query");
 
-        if (callbackQuery.has("data")) {
-            String data = callbackQuery.get("data").getAsString();
-            Pattern pattern = Pattern.compile("cart\\s*(\\d+)");
+        Optional<User> user = userService.findUserByChatId(chatId);
 
-            Matcher matcher = pattern.matcher(data);
-            if (matcher.matches()) {
-                int id = Integer.parseInt(matcher.group(1));
-                courseService.deleteFromCartByChatId(chatId, id);
-                sendTelegramMessage("Course removed successfully!", chatId, new HashMap<>());
+        if (callbackQuery.has("data") && user.isPresent()) {
+            int messageId = callbackQuery.get("message").getAsJsonObject().get("message_id").getAsInt();
+
+            String data = callbackQuery.get("data").getAsString();
+
+            Matcher deleteOutOfCartMatcher = Pattern.compile("delete_out_cart\\s*(\\d+)").matcher(data);
+            Matcher deleteInCartMatcher = Pattern.compile("delete_in_cart\\s*(\\d+)").matcher(data);
+            Matcher addMatcher = Pattern.compile("add_cart\\s*(\\d+)").matcher(data);
+            Matcher viewMatcher = Pattern.compile("view_course\\s*(\\d+)").matcher(data);
+            Matcher viewSectionMatcher = Pattern.compile("view_section\\s*(\\d+)\\s*course\\s*(\\d*)").matcher(data);
+
+            if (deleteInCartMatcher.matches()) {
+                int courseId = Integer.parseInt(deleteInCartMatcher.group(1));
+                cartService.deleteCourseByUserId(courseId, user.get().getId());
+                editCart(user.get(), messageId);
+            } else if (deleteOutOfCartMatcher.matches()) {
+                int courseId = Integer.parseInt(deleteOutOfCartMatcher.group(1));
+                cartService.deleteCourseByUserId(courseId, user.get().getId());
+                displayCourseDetails(courseService.findCourseById(courseId), user.get(), true, messageId);
+            } else if (addMatcher.matches()) {
+                int courseId = Integer.parseInt(addMatcher.group(1));
+                cartService.addCourseByUserId(courseId, user.get());
+                displayCourseDetails(courseService.findCourseById(courseId), user.get(), true, messageId);
+            } else if (viewMatcher.matches()) {
+                int courseId = Integer.parseInt(viewMatcher.group(1));
+                displayCourseSectionDetails(courseId, user.get(), messageId);
+            } else if (viewSectionMatcher.matches()) {
+                int sectionId = Integer.parseInt(viewSectionMatcher.group(1));
+                int courseId = Integer.parseInt(viewSectionMatcher.group(2));
+
+                //TODO: Think about design and how you
             }
         }
     }
 
     public void sendTelegramMessage(String text, int chatId, Map<String, Object> replyMarkup) {
         try {
-            RestClient
-                    .builder()
-                    .baseUrl("https://api.telegram.org/bot" + BOT_TOKEN)
-                    .build()
+            restClient
                     .post()
                     .uri("/sendMessage")
                     .accept(MediaType.APPLICATION_JSON)
@@ -330,5 +408,22 @@ public class BotService {
         } catch (HttpClientErrorException.Unauthorized errorException) {
             System.out.println(errorException.getMessage());
         }
+    }
+
+    private void editTelegramMessage(String text, int chatId, int messageId, Map<String, Object> replyMarkup) {
+        restClient
+                .post()
+                .uri("/editMessageText")
+                .accept(MediaType.APPLICATION_JSON)
+                .body(
+                        Map.of(
+                                "chat_id", chatId,
+                                "message_id", messageId,
+                                "text", text,
+                                "reply_markup", replyMarkup
+                        )
+                )
+                .retrieve()
+                .body(String.class);
     }
 }

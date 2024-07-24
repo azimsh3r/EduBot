@@ -8,7 +8,7 @@ import lombok.Setter;
 import java.util.List;
 
 @Entity
-@Table(name="course_section")
+@Table(name= "section")
 @Getter
 @Setter
 @NoArgsConstructor

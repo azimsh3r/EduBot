@@ -31,6 +31,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springframework:spring-webflux:6.1.10")
 	implementation("com.auth0:java-jwt:4.4.0")
+	implementation("org.springframework:spring-jdbc:6.1.10")
 	compileOnly("org.projectlombok:lombok")
 	runtimeOnly("org.postgresql:postgresql")
 	annotationProcessor("org.projectlombok:lombok")
