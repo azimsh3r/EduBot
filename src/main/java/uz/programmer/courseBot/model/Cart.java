@@ -24,6 +24,9 @@ public class Cart {
     @Column(name = "total_amount")
     private int totalAmount = 0;
 
+    @OneToMany(mappedBy = "cart")
+    private List<Order> order;
+
     @ManyToMany(cascade = {CascadeType.ALL})
     @JoinTable(
             name = "cart_course",

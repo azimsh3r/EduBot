@@ -73,7 +73,7 @@ public class UserService {
         return user;
     }
 
-    public Optional<User> findUserById(int userId) {
+    public Optional<User> findUserByPhoneNumber(int userId) {
         return userRepository.findById(userId);
     }
 }

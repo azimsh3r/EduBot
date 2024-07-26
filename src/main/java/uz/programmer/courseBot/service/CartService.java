@@ -54,4 +54,8 @@ public class CartService {
     public Optional<Cart> findCartByUserId(int id) {
         return cartRepository.findCartByUserId(id);
     }
+
+    public Optional<Cart> findCartByCartId(int id) {
+        return cartRepository.findById(id);
+    }
 }

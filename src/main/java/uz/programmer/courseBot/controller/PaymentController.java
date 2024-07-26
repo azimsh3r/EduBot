@@ -4,13 +4,11 @@ import com.google.gson.JsonObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import uz.programmer.courseBot.service.PaymentService;
 
 @RestController
-@RequestMapping("/api/v1/payment")
+@RequestMapping("/api/v1")
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -20,8 +18,9 @@ public class PaymentController {
         this.paymentService = paymentService;
     }
 
-    @PostMapping
-    public ResponseEntity<Object> receivePaymentResponse (String request) {
-        return new ResponseEntity<>(paymentService.processRequest(request), HttpStatus.OK);
+    @PostMapping("/payment")
+    public ResponseEntity<Object> receivePaymentResponse (@RequestBody String request, @RequestHeader("Authorization") String bearerToken) {
+        System.out.println(request);
+        return new ResponseEntity<>(paymentService.processRequest(request, bearerToken), HttpStatus.OK);
     }
 }

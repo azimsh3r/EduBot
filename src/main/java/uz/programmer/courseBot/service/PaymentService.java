@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import uz.programmer.courseBot.dao.CartDAO;
 import uz.programmer.courseBot.model.Cart;
+import uz.programmer.courseBot.model.Order;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -16,100 +17,228 @@ public class PaymentService {
 
     private final CartService cartService;
 
+    private final OrderService orderService;
+
     private final CartDAO cartDAO;
 
+    Map<String, Object> transactionNotFound = Map.of(
+            "en", "Transaction is not found",
+            "ru", "Транзакция не найдена",
+            "uz", "Tranzaksiya topilmadi"
+    );
+
+    Map<String, Object> result = new HashMap<>();
+
     @Autowired
-    public PaymentService(CartService cartService, CartDAO cartDAO) {
+    public PaymentService(CartService cartService, OrderService orderService, CartDAO cartDAO) {
         this.cartService = cartService;
+        this.orderService = orderService;
         this.cartDAO = cartDAO;
     }
 
     public String pay(int userId) {
         Optional<Cart> cart = cartService.findCartByUserId(userId);
-        return cart.map(this::initializePayment).orElse("error.uz");
+
+        if(cart.isPresent()) {
+            String originalUrl = "m=65745d3ddbf5969676427108" + ";" +
+                    "ac.cart_id=" + cart.get().getId() + ";" +
+                    "a=" + cart.get().getTotalAmount() * 100 + ";" +
+                    "c=https://t.me/prcoursebot";
+
+            String encodedUrl = Base64.getEncoder().encodeToString(originalUrl.getBytes());
+            return "https://checkout.paycom.uz/"+encodedUrl;
+        } else {
+            return "xuynya.ru";
+        }
     }
 
-    private String initializePayment(Cart cart) {
-        StringBuilder originalUrl = new StringBuilder();
+    public Map<String, Object> processRequest(String response, String bearerToken) {
+        //TODO: Verify bearer token
 
-        originalUrl.append("m=65745d3ddbf5969676427108").append(";");
-        originalUrl.append("ac.cart_id=").append(cart.getId()).append(";");
-        originalUrl.append("a=").append(cart.getTotalAmount() * 100).append(";");
-        originalUrl.append("c=https://t.me/prcoursebot");
+        JsonObject jsonObject = new Gson().fromJson(response, JsonObject.class);
 
-        String encodedUrl = Base64.getEncoder().encodeToString(originalUrl.toString().getBytes());
-        return "https://checkout.paycom.uz/"+encodedUrl;
-    }
-
-    public Map<String, Object> processRequest(String jsonObject) {
-        JsonObject response = new Gson().fromJson(jsonObject, JsonObject.class);
-        Map<String, Object> result = new HashMap<>();
-
-        if (response.has("method")) {
-            String method = response.getAsJsonObject("method").getAsString();
+        if (jsonObject.has("method")) {
+            String method = jsonObject.get("method").getAsString();
+            JsonObject params = jsonObject.get("params").getAsJsonObject();
             switch (method) {
                 case "CheckPerformTransaction": {
-                    result.put(
-                            "result",
-                            Map.of(
-                                    "allow", true
-                            )
-                    );
-                    break;
+                    if (verifyAmountAndAccountData(params)) {
+                        addSuccess(
+                                Map.of(
+                                        "allow", true
+                                )
+                        );
+                    }
                 }
                 case "CreateTransaction" : {
-                    result.put(
-                            "result",
-                            Map.of(
+                    if (verifyAmountAndAccountData(params)) {
+                        int cartId = params.get("account").getAsJsonObject().get("cart_id").getAsInt();
+                        String transactionId = params.get("id").getAsString();
+
+                        orderService.save(cartId, transactionId);
+                        addSuccess(
+                                Map.of(
                                     "create_time", LocalDate.now(),
-                                    "transaction", 4,
+                                    "transaction", cartId,
                                     "state", 1
-                            )
-                    );
-                    break;
+                                )
+                        );
+                    }
                 }
                 case "PerformTransaction" : {
-                    result.put(
-                            "result",
-                            Map.of(
-                                    "transaction", 4,
-                                    "perform_time", LocalDateTime.now(),
-                                    "state" , 2
-                            )
-                    );
+                    String transactionId = params.get("id").getAsString();
+
+                    Optional<Order> order = orderService.findOrderByTransactionId(transactionId);
+
+                    if (order.isPresent()) {
+                        if (order.get().getState() == 1) {
+                            order.get().setPerformTime(LocalDateTime.now());
+                            orderService.update(order.get());
+
+                            addSuccess(
+                                    Map.of(
+                                            "transaction", order.get().getId(),
+                                            "perform_time", LocalDateTime.now(),
+                                            "state" , 2
+                                    )
+                            );
+                        } else {
+                            addError(
+                                    -31050,
+                                    Map.of(
+                                            "uz", "Mumkin emas",
+                                            "ru", "Нельзя",
+                                            "en", "Forbidden"
+                                    )
+                            );
+                        }
+                    } else {
+                        addError(
+                                -31003,
+                                transactionNotFound
+                        );
+                    }
                     break;
                 }
                 case "CancelTransaction" : {
-                    result.put(
-                            "result",
-                            Map.of(
-                                    "transaction", 4,
+                    String transactionId = params.get("id").getAsString();
+                    Optional<Order> order = orderService.findOrderByTransactionId(transactionId);
+
+                    if (order.isPresent()) {
+                        if (order.get().getState() == 1) {
+                            order.get().setState(-2);
+                            orderService.update(order.get());
+
+                            addSuccess(Map.of(
+                                    "transaction", order.get().getId(),
                                     "cancel_time", LocalDateTime.now(),
                                     "state", -2
-                            )
-                    );
+                            ));
+                        } else {
+                            addError(-31008, Map.of(
+                                    "uz", "Mumkin emas",
+                                    "ru", "Невозможно выполнить",
+                                    "en", "Impossible to do"
+                            ));
+                        }
+                    } else {
+                        addError(
+                                -31003,
+                                transactionNotFound
+                        );
+                    }
                     break;
                 }
                 case "CheckTransaction" : {
-                    result.put(
-                            "result" ,
-                            Map.of(
-                                    //TODO: Modify these values to reflect real case
-                                    "create_time", LocalDateTime.now(),
-                                    "perform_time", LocalDateTime.now(),
-                                    "cancel_time", 0,
-                                    "transaction", "5123",
-                                    "state", 2,
-                                    "reason", "No re"
-                            )
-                    );
+                    String transactionId = params.get("id").getAsString();
+                    Optional<Order> order = orderService.findOrderByTransactionId(transactionId);
+
+                    if (order.isPresent()) {
+                            addSuccess(
+                                    Map.of(
+                                            "create_time", order.get().getCreateTime(),
+                                            "perform_time", order.get().getPerformTime(),
+                                            "cancel_time", 0,
+                                            "transaction", order.get().getId(),
+                                            "state", order.get().getState(),
+                                            "reason", "No reason"
+                                    )
+                            );
+                    } else {
+                        addError(
+                                -31003,
+                                transactionNotFound
+                        );
+                    }
                     break;
                 }
                 case "GetStatement" : {
+                    //TODO
                     break;
                 }
             }
         }
         return result;
+    }
+
+    private void addError(int errorCode, Map<String, Object> message) {
+        this.result.put(
+                "error",
+                Map.of(
+                        "code", errorCode,
+                        "message", message
+                )
+        );
+    }
+
+    private void addSuccess(Map<String, Object> resultMap) {
+        result.put("result", resultMap);
+//        result.put("id", id);
+    }
+
+    private boolean verifyAmountAndAccountData(JsonObject params) {
+        if (params.has("account")) {
+            JsonObject account = params.get("account").getAsJsonObject();
+            if (account.has("cart_id")) {
+                int cartId = account.get("cart_id").getAsInt();
+                Optional<Cart> cart = cartService.findCartByCartId(cartId);
+
+                if (cart.isPresent()) {
+                    int amount = params.get("amount").getAsInt();
+
+                    if (cart.get().getTotalAmount() == amount) {
+                        return true;
+                    } else {
+                        addError(
+                                -31001,
+                                Map.of(
+                                        "ru", "Неверная сумма",
+                                        "uz", "Notogri summa",
+                                        "en", "Amount is incorrent"
+                                )
+                        );
+                    }
+                } else {
+                    addError(
+                            -31050,
+                            Map.of(
+                                    "ru", "Номер корзины не найден",
+                                    "uz", "Cart raqami topilmadi",
+                                    "en", "Cart number is not found"
+                            )
+                    );
+                }
+            } else {
+                addError(
+                        -31050,
+                        Map.of(
+                                "ru", "Поле аккаунт пустое",
+                                "en", "Field account is empty",
+                                "uz", "Account bo'sh"
+                        )
+                );
+            }
+        }
+        return false;
     }
 }
