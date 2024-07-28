@@ -43,7 +43,7 @@ public class Order {
     private Long cancelTime = 0L;
 
     @Column(name = "reason")
-    private String reason = null;
+    private Integer reason = null;
 
     public Order() {}
 }

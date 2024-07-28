@@ -145,27 +145,37 @@ public class PaymentService {
                     Optional<Order> order = orderService.findOrderByTransactionId(transactionId);
 
                     if (order.isPresent()) {
-                        Map<String, Object> cancelMap = new HashMap<>(Map.of(
-                                "transaction", order.get().getTransactionId(),
-                                "cancel_time", order.get().getCancelTime(),
-                                "state", order.get().getState()
-                        ));
                         int state = order.get().getState();
+
                         if (state == 1 || state == 2) {
                             //updates state and cancel_time
                             order.get().setState(-state);
                             order.get().setCancelTime(System.currentTimeMillis());
-
                             if (params.has("reason")) {
-                                order.get().setReason(String.valueOf(params.get("reason").getAsInt()));
+                                order.get().setReason(params.get("reason").getAsInt());
                             }
-
                             orderService.update(order.get());
 
+                            Map<String, Object> cancelMap = new HashMap<>(Map.of(
+                                    "transaction", order.get().getTransactionId(),
+                                    "cancel_time", order.get().getCancelTime(),
+                                    "state", order.get().getState()
+                            ));
+
+                            if (params.has("reason"))
+                                cancelMap.put("reason", order.get().getReason());
                             addSuccess(cancelMap);
                         } else {
+                            Map<String, Object> cancelMap = new HashMap<>(Map.of(
+                                    "transaction", order.get().getTransactionId(),
+                                    "cancel_time", order.get().getCancelTime(),
+                                    "state", order.get().getState()
+                            ));
+
+                            if (order.get().getReason() != null)
+                                cancelMap.put("reason", order.get().getReason());
+
                             addSuccess(cancelMap);
-                            return result;
                         }
                     } else {
                         addError(
