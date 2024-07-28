@@ -19,7 +19,7 @@ public class PaymentController {
     }
 
     @PostMapping("/payment")
-    public ResponseEntity<Object> receivePaymentResponse (@RequestBody String request, @RequestHeader("Authorization") String bearerToken) {
+    public ResponseEntity<Object> receivePaymentResponse (@RequestBody String request, @RequestHeader(value = "Authorization", required = false) String bearerToken) {
         System.out.println(request);
         return new ResponseEntity<>(paymentService.processRequest(request, bearerToken), HttpStatus.OK);
     }

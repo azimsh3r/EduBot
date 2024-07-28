@@ -1,12 +1,12 @@
 package uz.programmer.courseBot.service;
 
-import org.aspectj.weaver.ast.Or;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import uz.programmer.courseBot.dao.OrderDAO;
 import uz.programmer.courseBot.model.Order;
 import uz.programmer.courseBot.repository.OrderRepository;
 
-import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -14,17 +14,20 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
 
+    private final OrderDAO orderDAO;
+
     private final CartService cartService;
 
     @Autowired
-    public OrderService(OrderRepository orderRepository, CartService cartService) {
+    public OrderService(OrderRepository orderRepository, OrderDAO orderDAO, CartService cartService) {
         this.orderRepository = orderRepository;
+        this.orderDAO = orderDAO;
         this.cartService = cartService;
     }
 
-    public Order save (int cartId, String transactionId) {
-        Order order = new Order(transactionId, cartService.findCartByCartId(cartId).get(), 1);
-        order.setCreateTime(LocalDateTime.now());
+    public Order save (int cartId, String transactionId, int state) {
+        Order order = new Order(transactionId, cartService.findCartByCartId(cartId).get(), state);
+        order.setCreateTime(System.currentTimeMillis());
         return orderRepository.save(order);
     }
 
@@ -35,4 +38,9 @@ public class OrderService {
     public void update(Order order) {
         orderRepository.save(order);
     }
+
+    public List<Order> findTransactionsByDate(long from, long to) {
+        return orderDAO.findTransactionsFromTo(from, to);
+    }
+
 }

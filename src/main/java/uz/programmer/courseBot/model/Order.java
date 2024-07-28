@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.Calendar;
 
 @Getter
 @Setter
@@ -33,13 +34,16 @@ public class Order {
     private Integer state;
 
     @Column(name="create_time")
-    private LocalDateTime createTime;
+    private Long createTime = System.currentTimeMillis();
 
     @Column(name="perform_time")
-    private LocalDateTime performTime = LocalDateTime.MIN;
+    private Long performTime = 0L;
 
     @Column(name = "cancel_time")
-    private LocalDateTime cancelTime = LocalDateTime.MIN;
+    private Long cancelTime = 0L;
+
+    @Column(name = "reason")
+    private String reason = null;
 
     public Order() {}
 }
