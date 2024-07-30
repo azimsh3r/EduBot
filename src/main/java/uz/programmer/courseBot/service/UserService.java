@@ -4,9 +4,11 @@ import com.google.gson.JsonObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uz.programmer.courseBot.model.Course;
 import uz.programmer.courseBot.model.User;
 import uz.programmer.courseBot.repository.UserRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -75,5 +77,14 @@ public class UserService {
 
     public Optional<User> findUserByPhoneNumber(int userId) {
         return userRepository.findById(userId);
+    }
+
+    public void updateBoughtCourses(List<Course> courses, int userId) {
+        Optional<User> user = userRepository.findById(userId);
+
+        user.ifPresent(u -> {
+            u.setBoughtCourses(courses);
+            userRepository.save(u);
+        });
     }
 }

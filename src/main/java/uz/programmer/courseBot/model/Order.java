@@ -45,5 +45,7 @@ public class Order {
     @Column(name = "reason")
     private Integer reason = null;
 
+    private LocalDateTime timeout = LocalDateTime.now().plusMinutes(5);
+
     public Order() {}
 }

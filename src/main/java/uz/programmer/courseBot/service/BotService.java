@@ -298,7 +298,7 @@ public class BotService {
         });
     }
 
-    private void displayCourseSections(int courseId, User user, int messageId, boolean edit) {
+    private void displayCourseSections(int courseId, User user, int messageId) {
         Optional<Course> course = courseService.findCourseById(courseId);
 
         StringBuilder sectionsString = new StringBuilder();
@@ -315,7 +315,7 @@ public class BotService {
                 sectionsString.append(i + 1).append(") ").append(section.getName()).append(" (").append(section.getCourseLessonList().size()).append(" lessons)").append("\n");
                 inlineButtons.add(Map.of(
                         "text", section.getName(),
-                        "callback_data", "view_section " + i
+                        "callback_data", "view_section " + section.getId()
                 ));
             }
             inlineButtons.add(Map.of(
@@ -333,7 +333,6 @@ public class BotService {
         }
     }
 
-    //TODO: Complete logic for viewing lessons
     private void displayCourseSectionDetails(int sectionId, int messageId, User user) {
         Optional<CourseSection> section = sectionService.findById(sectionId);
         System.out.println(sectionId);
@@ -345,6 +344,7 @@ public class BotService {
 
             for (CourseLesson lesson : section.get().getCourseLessonList()) {
                 text.append(lesson.getTitle()).append("\n");
+                text.append(lesson.getDescription()).append("\n");
                 inlineButtons.add(
                         Map.of(
                                 "text", lesson.getTitle(),
@@ -393,6 +393,7 @@ public class BotService {
             Matcher addCourseToCartMatcher = Pattern.compile("add_cart\\s*(\\d+)").matcher(data);
             Matcher viewCourseMatcher = Pattern.compile("view_course\\s*(\\d+)").matcher(data);
             Matcher viewSectionMatcher = Pattern.compile("view_section\\s*(\\d+)").matcher(data);
+            Matcher viewLessonMatcher = Pattern.compile("view_lesson\\s*(\\d+)").matcher(data);
 
             if (deleteInCartMatcher.matches()) {
                 int courseId = Integer.parseInt(deleteInCartMatcher.group(1));
@@ -411,7 +412,7 @@ public class BotService {
             } else if (viewCourseMatcher.matches()) {
                 int courseId = Integer.parseInt(viewCourseMatcher.group(1));
                 //Display sections list of the course
-                displayCourseSections(courseId, user.get(), messageId, false);
+                displayCourseSections(courseId, user.get(), messageId);
             } else if (viewSectionMatcher.matches()) {
                 int sectionId = Integer.parseInt(viewSectionMatcher.group(1));
                 //Display content of the section
@@ -422,7 +423,11 @@ public class BotService {
                 displayCourseDetails(courseService.findCourseById(courseId), user.get(), messageId, true);
             } else if (goBackToSectionsMatcher.matches()) {
                 int courseId = Integer.parseInt(goBackToSectionsMatcher.group(1));
-                //TODO: Logic to go back to sections from individual section
+                displayCourseSections(courseId, user.get(), messageId);
+            } else if (viewLessonMatcher.matches()) {
+                int lessonId = Integer.parseInt(viewLessonMatcher.group(1));
+
+                //TODO: Logic to view
             }
         }
     }

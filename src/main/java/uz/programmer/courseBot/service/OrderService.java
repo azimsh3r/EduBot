@@ -6,6 +6,7 @@ import uz.programmer.courseBot.dao.OrderDAO;
 import uz.programmer.courseBot.model.Order;
 import uz.programmer.courseBot.repository.OrderRepository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,4 +44,8 @@ public class OrderService {
         return orderDAO.findTransactionsFromTo(from, to);
     }
 
+
+    public List<Order> findAllByCartIdAndStateAndTransactionId(int cartId, int state, String transactionId) {
+        return orderRepository.findOrderByCartIdAndState(cartId, state, transactionId, LocalDateTime.now());
+    }
 }

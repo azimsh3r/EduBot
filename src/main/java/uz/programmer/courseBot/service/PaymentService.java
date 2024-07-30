@@ -2,12 +2,12 @@ package uz.programmer.courseBot.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import uz.programmer.courseBot.model.Cart;
 import uz.programmer.courseBot.model.Order;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -50,7 +50,7 @@ public class PaymentService {
     }
 
     public Map<String, Object> processRequest(String response, String bearerToken) {
-
+        result = new HashMap<>();
         if (bearerToken == null || !verifyBearerToken(bearerToken)) {
             addError(
                     -32504,
@@ -96,14 +96,27 @@ public class PaymentService {
                                     )
                             );
                         } else {
-                            Order order = orderService.save(cartId, transactionId, 1);
-                            addSuccess(
-                                    Map.of(
-                                            "create_time", order.getCreateTime(),
-                                            "transaction", order.getTransactionId(),
-                                            "state", order.getState()
-                                    )
-                            );
+                            List<Order> activeOrder = orderService.findAllByCartIdAndStateAndTransactionId(cartId, 1, transactionId);
+                            if (!activeOrder.isEmpty()) {
+                                addError(
+                                        -31099,
+                                        Map.of(
+                                                "uz", "Yangi tranzaksiya qilish mumkin emas",
+                                                "ru", "Нельзя создать транзакцию",
+                                                "en", "Creating new transaction is impossible"
+                                        )
+                                );
+                            } else {
+                                Order order = orderService.save(cartId, transactionId, 1);
+                                addSuccess(
+                                        Map.of(
+                                                "create_time", order.getCreateTime(),
+                                                "transaction", order.getTransactionId(),
+                                                "state", order.getState()
+                                        )
+                                );
+                            }
+                            return result;
                         }
                     }
                     break;
@@ -129,6 +142,8 @@ public class PaymentService {
                                             "state", order.get().getState()
                                     )
                             );
+
+                            cartService.obtainAllCourses(order.get().getCart());
                         }
                     } else {
                         addError(
@@ -148,10 +163,11 @@ public class PaymentService {
                         int state = order.get().getState();
 
                         if (state == 1 || state == 2) {
-                            //updates state and cancel_time
                             order.get().setState(-state);
                             order.get().setCancelTime(System.currentTimeMillis());
-                            if (params.has("reason")) {
+
+                            boolean hasReason = params.has("reason");
+                            if (hasReason) {
                                 order.get().setReason(params.get("reason").getAsInt());
                             }
                             orderService.update(order.get());
@@ -161,10 +177,22 @@ public class PaymentService {
                                     "cancel_time", order.get().getCancelTime(),
                                     "state", order.get().getState()
                             ));
-
-                            if (params.has("reason"))
+                            if (hasReason) {
                                 cancelMap.put("reason", order.get().getReason());
-                            addSuccess(cancelMap);
+                            }
+
+                            if (state == 1 || order.get().getReason() == 5) {
+                                addSuccess(cancelMap);
+                            } else {
+                                addError(
+                                    -31007,
+                                    Map.of(
+                                            "uz", "Bekor qilish mumkin emas",
+                                            "ru", "Нельзя отменить транзакцию",
+                                            "en", "Cannot be cancelled"
+                                    )
+                                );
+                            }
                         } else {
                             Map<String, Object> cancelMap = new HashMap<>(Map.of(
                                     "transaction", order.get().getTransactionId(),
