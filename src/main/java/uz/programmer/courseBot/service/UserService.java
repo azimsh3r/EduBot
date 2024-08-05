@@ -78,13 +78,4 @@ public class UserService {
     public Optional<User> findUserByPhoneNumber(int userId) {
         return userRepository.findById(userId);
     }
-
-    public void updateBoughtCourses(List<Course> courses, int userId) {
-        Optional<User> user = userRepository.findById(userId);
-
-        user.ifPresent(u -> {
-            u.setBoughtCourses(courses);
-            userRepository.save(u);
-        });
-    }
 }

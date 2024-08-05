@@ -4,8 +4,10 @@ import jakarta.transaction.Transactional;
 import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import uz.programmer.courseBot.dao.CourseDAO;
 import uz.programmer.courseBot.model.Cart;
 import uz.programmer.courseBot.model.Course;
+import uz.programmer.courseBot.model.Order;
 import uz.programmer.courseBot.model.User;
 import uz.programmer.courseBot.repository.CartRepository;
 
@@ -20,13 +22,13 @@ public class CartService {
 
     private final CourseService courseService;
 
-    private final UserService userService;
+    private final CourseDAO courseDAO;
 
     @Autowired
-    public CartService(CartRepository cartRepository, CourseService courseService, UserService userService) {
+    public CartService(CartRepository cartRepository, CourseService courseService, CourseDAO courseDAO) {
         this.cartRepository = cartRepository;
         this.courseService = courseService;
-        this.userService = userService;
+        this.courseDAO = courseDAO;
     }
 
     public void deleteCourseByUserId(int courseId, int userId) {
@@ -64,22 +66,16 @@ public class CartService {
         return cartRepository.findById(id);
     }
 
-    public void obtainAllCourses(Cart c) {
-        Optional<Cart> cart = findCartByCartId(c.getId());
-        System.out.println("CartId: " + c.getId());
-
+    public void obtainAllCourses(Order order) {
+        Optional<Cart> cart = cartRepository.findById(order.getCart().getId());
         if (cart.isPresent()) {
             Hibernate.initialize(cart.get().getUser());
             User user = cart.get().getUser();
-            List<Course> courses = new ArrayList<>();
 
             Hibernate.initialize(cart.get().getCourseList());
-            Hibernate.initialize(user.getBoughtCourses());
-
-            courses.addAll(cart.get().getCourseList());
-            courses.addAll(user.getBoughtCourses());
-
-            userService.updateBoughtCourses(courses, user.getId());
+            for (Course course : cart.get().getCourseList()) {
+                courseDAO.addCourseToBoughtCourses(course, user);
+            }
             cleanCart(cart.get());
         }
     }

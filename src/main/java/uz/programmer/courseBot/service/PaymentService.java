@@ -2,6 +2,7 @@ package uz.programmer.courseBot.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import uz.programmer.courseBot.model.Cart;
@@ -41,7 +42,6 @@ public class PaymentService {
                     "ac.cart_id=" + cart.get().getId() + ";" +
                     "a=" + cart.get().getTotalAmount() * 100 + ";" +
                     "c=https://t.me/prcoursebot";
-
             String encodedUrl = Base64.getEncoder().encodeToString(originalUrl.getBytes());
             return "https://checkout.paycom.uz/"+encodedUrl;
         } else {
@@ -129,6 +129,22 @@ public class PaymentService {
 
                     if (order.isPresent()) {
                         if (order.get().getState() == 1 || order.get().getState() == 2) {
+                            if (!verifyAmount(order.get())) {
+                                addError(
+                                        -31008,
+                                        Map.of(
+                                                "uz", "Tovar miqdori o'zdgardi",
+                                                "ru", "Количество товаров поменялось",
+                                                "en", "Cart has changed"
+                                        )
+                                );
+                                order.get().setState(-1);
+                                order.get().setCancelTime(System.currentTimeMillis());
+                                orderService.update(order.get());
+
+                                return result;
+                            }
+
                             if (order.get().getPerformTime() == 0) {
                                 order.get().setPerformTime(System.currentTimeMillis());
                                 order.get().setState(2);
@@ -142,8 +158,7 @@ public class PaymentService {
                                             "state", order.get().getState()
                                     )
                             );
-
-                            cartService.obtainAllCourses(order.get().getCart());
+                            cartService.obtainAllCourses(order.get());
                         }
                     } else {
                         addError(
@@ -267,6 +282,11 @@ public class PaymentService {
             }
         }
         return result;
+    }
+
+    private boolean verifyAmount(Order order) {
+        Hibernate.initialize(order.getCart().getId());
+        return cartService.findCartByCartId(order.getCart().getId()).get().getTotalAmount() == order.getAmount();
     }
 
     private void addError(int errorCode, Map<String, Object> message) {

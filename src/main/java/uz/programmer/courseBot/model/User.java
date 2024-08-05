@@ -42,6 +42,7 @@ public class User {
     @OneToOne(mappedBy = "user")
     private Cart cart;
 
+    @Cascade(org.hibernate.annotations.CascadeType.ALL)
     @ManyToMany(mappedBy = "users")
     private List<Course> boughtCourses;
 }

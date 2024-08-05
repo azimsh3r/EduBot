@@ -28,15 +28,18 @@ public class BotService {
 
     private final SectionService sectionService;
 
+    private final LessonService lessonService;
+
     private final RestClient restClient = RestClient.builder().baseUrl("https://api.telegram.org/bot" + BOT_TOKEN).build();
 
     @Autowired
-    public BotService(UserService userService, PaymentService paymentService, CartService cartService, CourseService courseService, SectionService sectionService) {
+    public BotService(UserService userService, PaymentService paymentService, CartService cartService, CourseService courseService, SectionService sectionService, LessonService lessonService) {
         this.userService = userService;
         this.paymentService = paymentService;
         this.cartService = cartService;
         this.courseService = courseService;
         this.sectionService = sectionService;
+        this.lessonService = lessonService;
     }
 
     private static final String BOT_TOKEN = System.getenv("coursebot_token");
@@ -77,7 +80,7 @@ public class BotService {
         }
 
         if (userService.verifyRegistration(chatId)) {
-            User user = userService.findUserByChatId(chatId).get();
+            User user = userService.findUserByChatId(chatId).stream().findAny().orElse(new User());
 
             switch (text) {
                 case "All Courses\uD83E\uDDD1\u200D\uD83D\uDCBB️", "My Courses": {
@@ -101,10 +104,6 @@ public class BotService {
                     if (prevState.equals("start")) {
                         userService.setState(user.getChatId(), "start");
                         displayMainMenu(user.getChatId());
-                    } else {
-                        if (prevState.startsWith("course ")) {
-                            //TODO: Logic for going back to course details
-                        }
                     }
                     break;
                 }
@@ -190,7 +189,7 @@ public class BotService {
         listOfButtons.add(Map.of("text", "Go Back⬅️"));
 
         sendTelegramMessage(
-                "Please Choose any course from options below!",
+                "Please choose any course from options below!",
                 user.getChatId(),
                 getReplyMarkup(listOfButtons, false)
         );
@@ -280,17 +279,17 @@ public class BotService {
             } else {
                 inlineButtons.add(Map.of("text", "\uD83D\uDED2", "callback_data", "add_cart " + value.getId()));
             }
-
+            String text = "\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\n\nDescription: " + value.getDescription() + "\n\nRanking: " + value.getRanking() + "⭐\nPrice(In soums): " +value.getPrice();
             if (edit) {
                 editTelegramMessage(
-                        "\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(),
+                        text,
                         user.getChatId(),
                         messageId,
                         getReplyMarkup(inlineButtons, true)
                 );
             } else {
                 sendTelegramMessage(
-                        "\uD83D\uDCDA" + value.getTitle() + "\n\uD83D\uDC64 By " + value.getAuthor() + "\nRanking: " + value.getRanking() + "\nPrice(In soums): " +value.getPrice(),
+                        text,
                         user.getChatId(),
                         getReplyMarkup(inlineButtons, true)
                 );
@@ -307,12 +306,13 @@ public class BotService {
 
             List<CourseSection> courseSections = course.get().getCourseSectionList();
 
+            sectionsString.append("\uD83C\uDF93").append(course.get().getTitle()).append("\n").append("\n");
             sectionsString.append("Sections:").append("\n");
             for (int i = 0; i < courseSections.size(); i++) {
                 CourseSection section = courseSections.get(i);
                 Hibernate.initialize(section.getCourseLessonList());
 
-                sectionsString.append(i + 1).append(") ").append(section.getName()).append(" (").append(section.getCourseLessonList().size()).append(" lessons)").append("\n");
+                sectionsString.append(i + 1).append(": ").append(section.getName()).append(" (").append(section.getCourseLessonList().size()).append(" lessons)").append("\n");
                 inlineButtons.add(Map.of(
                         "text", section.getName(),
                         "callback_data", "view_section " + section.getId()
@@ -342,17 +342,18 @@ public class BotService {
             Hibernate.initialize(section.get().getCourseLessonList());
             StringBuilder text = new StringBuilder();
 
+            int i = 1;
+            text.append("\uD83D\uDCDC" + section.get().getName()).append("\n").append("\n");
             for (CourseLesson lesson : section.get().getCourseLessonList()) {
-                text.append(lesson.getTitle()).append("\n");
-                text.append(lesson.getDescription()).append("\n");
+                text.append(i).append(": ").append(lesson.getTitle()).append("\n");
                 inlineButtons.add(
                         Map.of(
                                 "text", lesson.getTitle(),
                                 "callback_data", "view_lesson " + lesson.getId()
                         )
                 );
+                i++;
             }
-
             inlineButtons.add(
                     Map.of(
                             "text", "Go Back⬅️",
@@ -373,6 +374,22 @@ public class BotService {
                     messageId,
                     Map.of()
             );
+        }
+    }
+
+    private void viewCourseLesson(int lessonId, int messageId, User user) {
+        Optional<CourseLesson> lesson = lessonService.findById(lessonId);
+
+        if (lesson.isPresent()) {
+            List<Map<String, Object>> inlineButtons = new ArrayList<>(List.of(
+                    Map.of("text", "<< Prev", "callback_data", "rerer"),
+                    Map.of("text", "Next >>", "callback_data", "e343434"),
+                    Map.of("text", "Go Back", "callback_data", "view_section " + lesson.get().getCourseSection().getId())
+            ));
+
+            String text = "Title: \uD83E\uDDD1\u200D\uD83C\uDFEB ️" + lesson.get().getTitle() + "\n" +
+                    "Description: " + lesson.get().getDescription() + "\n";
+            editTelegramMessage(text, user.getChatId(), messageId, getReplyMarkup(inlineButtons, true));
         }
     }
 
@@ -426,8 +443,7 @@ public class BotService {
                 displayCourseSections(courseId, user.get(), messageId);
             } else if (viewLessonMatcher.matches()) {
                 int lessonId = Integer.parseInt(viewLessonMatcher.group(1));
-
-                //TODO: Logic to view
+                viewCourseLesson(lessonId, messageId, user.get());
             }
         }
     }
@@ -435,7 +451,7 @@ public class BotService {
     private Map<String, Object> getReplyMarkup(List<Map<String, Object>> buttons, boolean inlineButtons) {
         Map<String, Object> replyMarkup = new HashMap<>(Map.of(
                 "resize_keyboard", true,
-                "one_time_keyboard", true
+                "one_time_keyboard", false
         ));
         if (inlineButtons) {
             replyMarkup.put("inline_keyboard", List.of(buttons));
@@ -479,6 +495,6 @@ public class BotService {
                         )
                 )
                 .retrieve()
-                .body(String.class);
+                .toBodilessEntity();
     }
 }
