@@ -42,7 +42,7 @@ public class BotService {
         this.lessonService = lessonService;
     }
 
-    private static final String BOT_TOKEN = System.getenv("coursebot_token");
+    private static final String BOT_TOKEN = System.getenv("course_bot_token");
 
     public void handleIncomingMessage(String response) {
         JsonObject jsonObject = new Gson().fromJson(response, JsonObject.class);
@@ -382,8 +382,8 @@ public class BotService {
 
         if (lesson.isPresent()) {
             List<Map<String, Object>> inlineButtons = new ArrayList<>(List.of(
-                    Map.of("text", "<< Prev", "callback_data", "rerer"),
-                    Map.of("text", "Next >>", "callback_data", "e343434"),
+                    Map.of("text", "<< Prev", "callback_data", "view_lesson "),
+                    Map.of("text", "Next >>", "callback_data", "view_lesson "),
                     Map.of("text", "Go Back", "callback_data", "view_section " + lesson.get().getCourseSection().getId())
             ));
 
